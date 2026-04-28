@@ -58,22 +58,32 @@ if df_cus is not None:
         selected_saleman_code = c_data['พนักงานขาย']
         default_unit = c_data['หน่วย']
 
-        # --- ส่วนแสดงเงื่อนไขที่ปรับให้สวยงาม (ข้อ 2) ---
+        # --- ส่วนแสดงข้อมูลและเงื่อนไขที่ปรับลำดับใหม่ (ข้อ 1 และ 2) ---
         st.markdown(f"""
         <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #ff4b4b;">
-            <h4 style="margin-top:0;">📋 ข้อมูลและเงื่อนไขการตรวจสอบ</h4>
+            <h4 style="margin-top:0;">📋 ข้อมูลและเงื่อนไขสำหรับการ Parse PO</h4>
             <table style="width:100%; border-collapse: collapse;">
                 <tr>
-                    <td style="width:20%; font-weight:bold; color:#555;">ลูกค้า:</td>
-                    <td style="font-size:18px;">{selected_cus_code} | {c_data['ชื่อลูกค้า']}</td>
+                    <td style="width:25%; font-weight:bold; color:#555;">1. ลูกค้า (รหัส):</td>
+                    <td style="font-size:18px; font-weight:bold;">{selected_cus_code}</td>
                 </tr>
                 <tr>
-                    <td style="font-weight:bold; color:#555;">เงื่อนไข P/O:</td>
+                    <td style="font-weight:bold; color:#555;">2. ชื่อลูกค้า:</td>
+                    <td>{selected_cus_name}</td>
+                </tr>
+                <tr>
+                    <td style="font-weight:bold; color:#555;">3. ชื่อพนักงานขาย (Sale):</td>
+                    <td>{selected_saleman_name} ({selected_saleman_code})</td>
+                </tr>
+                <tr>
+                    <td style="font-weight:bold; color:#555;">4. เงื่อนไข P/O:</td>
                     <td style="color:#d33682; font-weight:bold;">{c_data.get('เลขที่ P/O ลูกค้า', 'ไม่ระบุเงื่อนไข')}</td>
                 </tr>
                 <tr>
-                    <td style="font-weight:bold; color:#555;">พนักงานขาย:</td>
-                    <td>{c_data['ชื่อพนักงานขาย']} ({selected_saleman_code})</td>
+                    <td style="font-weight:bold; color:#555;">5. Customer Code (สำหรับ Parse):</td>
+                    <td style="color:#268bd2; font-weight:bold;">
+                        {"รหัส 9 หลัก (TUS)" if "TUS" in selected_cus_code else "รหัส 6 หลัก (MAK)" if "MAK" in selected_cus_code else "รหัสกลุ่ม TFS"}
+                    </td>
                 </tr>
             </table>
         </div>
