@@ -1,130 +1,172 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 import io
-import re
 
-# --- CONFIG ---
-st.set_page_config(page_title="PO to S-018", layout="wide")
+# --- CONFIGURATION ---
+st.set_page_config(page_title="PO to S-018 Generator", layout="wide")
 
-if 'db_pd' not in st.session_state: st.session_state.db_pd = None
-if 'db_cus' not in st.session_state: st.session_state.db_cus = None
+# --- HELPER FUNCTIONS ---
+def load_master_data(file):
+    if file is not None:
+        return pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
+    return None
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.header("⚙️ Master Data (Overwrite)")
-    up_pd = st.file_uploader("Upload PD_pack.xlsx", type=["xlsx"])
-    if up_pd:
-        st.session_state.db_pd = pd.read_excel(up_pd)
-        st.success("อัปเดตสินค้าเรียบร้อย")
-        
-    up_cus = st.file_uploader("Upload Cus_SaleList.xlsx", type=["xlsx"])
-    if up_cus:
-        st.session_state.db_cus = pd.read_excel(up_cus)
-        st.success("อัปเดตลูกค้าเรียบร้อย")
+def normalize_unit_logic(po_qty, price_unit_ratio, box_unit_ratio):
+    """สูตร: (จำนวนสั่งจาก PO × Ratio หน่วยราคา) ÷ Ratio หน่วย Box"""
+    try:
+        po_qty = float(po_qty)
+        p_ratio = float(price_unit_ratio)
+        b_ratio = float(box_unit_ratio)
+        return (po_qty * p_ratio) / b_ratio
+    except:
+        return 0
 
 # --- MAIN APP ---
-st.title("📦 ระบบแปลง PO (S-018 Generator)")
+st.title("📦 PO to Sales Order (S-018) Generator")
+st.markdown("---")
 
-if st.session_state.db_pd is None or st.session_state.db_cus is None:
-    st.warning("⚠️ กรุณาอัปโหลด Master Data ทั้ง 2 ไฟล์ก่อนนะคะ")
-else:
-    # STEP 1: เลือกพนักงานและลูกค้า
-    cus_df = st.session_state.db_cus.copy()
-    cus_df['Cus_Label'] = cus_df['รหัสลูกค้า'].astype(str) + " | " + cus_df['ชื่อลูกค้า'].astype(str)
-    selected_cus = st.selectbox("เลือกรหัสหรือชื่อลูกค้า", cus_df['Cus_Label'].unique())
+# 1. SIDEBAR: Master Data Management
+with st.sidebar:
+    st.header("⚙️ Master Data Management")
+    uploaded_cus = st.file_uploader("Upload Cus_SaleList", type=['xlsx', 'csv'])
+    uploaded_pd = st.file_uploader("Upload PD_pack", type=['xlsx', 'csv'])
     
-    # ดึงข้อมูล Master ลูกค้า
-    cus_code = selected_cus.split(" | ")[0]
-    cus_info = cus_df[cus_df['รหัสลูกค้า'] == cus_code].iloc[0]
-    target_unit_price = str(cus_info['หน่วย']).strip() # หน่วยราคาจาก Master ลูกค้า
+    if uploaded_cus and uploaded_pd:
+        st.success("Master Data Loaded!")
 
-    # STEP 2: อัปโหลด PO
-    st.divider()
-    po_file = st.file_uploader("อัปโหลดไฟล์ PO (PDF/Excel/Image)", type=["pdf", "xlsx", "png", "jpg"])
+# 2. STEP 1: Pre-selection (เลือกพนักงานขายและลูกค้า)
+st.header("Step 1: Selection & Upload PO")
+col1, col2, col3 = st.columns(3)
 
-    if po_file:
-        st.info("กำลังประมวลผลข้อมูล...")
+df_cus = load_master_data(uploaded_cus)
+df_pd = load_master_data(uploaded_pd)
+
+selected_cus = None
+default_unit = "pcs"
+selected_saleman = ""
+
+if df_cus is not None:
+    with col1:
+        customer_list = df_cus['ชื่อลูกค้า'].unique()
+        selected_cus_name = st.selectbox("เลือกชื่อลูกค้า", customer_list)
+        cus_info = df_cus[df_cus['ชื่อลูกค้า'] == selected_cus_name].iloc[0]
+        selected_cus_code = cus_info['รหัสลูกค้า']
+        default_unit = cus_info['หน่วย']
+    
+    with col2:
+        saleman_list = df_cus[df_cus['ชื่อลูกค้า'] == selected_cus_name]['ชื่อพนักงานขาย'].unique()
+        selected_saleman_name = st.selectbox("เลือกพนักงานขาย", saleman_list)
+        selected_saleman_code = df_cus[df_cus['ชื่อพนักงานขาย'] == selected_saleman_name].iloc[0]['พนักงานขาย']
+
+# 3. STEP 2: PO Upload & Parsing (Simulated for this script)
+with col3:
+    uploaded_po = st.file_uploader("Upload PO File (PDF/Excel)", type=['pdf', 'xlsx'])
+
+if uploaded_po and df_pd is not None:
+    st.markdown("---")
+    st.header("Step 2: Review & Edit Data")
+    
+    # จำลองข้อมูลจากการ Parse (ในแอปจริงส่วนนี้จะเรียก Gemini API)
+    # ตัวอย่างข้อมูลจำลองจากเคส Lotus ที่พี่นุ่นให้มา
+    raw_po_data = [
+        {"po_item": "405456181", "qty": 28, "po_no": "35037492"}, # FSMT1001 (Match 185)
+        {"po_item": "405456179", "qty": 10, "po_no": "35037492"},
+        {"po_item": "407677149", "qty": 36, "po_no": "35037492"},
+        {"po_item": "999999999", "qty": 5, "po_no": "35037492"}   # ตัวอย่างรายการไม่พบรหัส
+    ]
+    
+    review_list = []
+    
+    for item in raw_po_data:
+        # Priority 1: Customer Code (TUS/MAK/TFS)
+        col_name = ""
+        if "TUS" in selected_cus_code: col_name = "TUS"
+        elif "MAK" in selected_cus_code: col_name = "MAK"
         
-        # --- [Logic: PO Detection & Mapping] ---
-        # จำลองข้อมูลที่ได้จากการ Parse (ในแอปจริงส่วนนี้จะรับค่าจาก Gemini)
-        raw_po_no = "881.9999" # ตัวอย่างเลขที่ PO
-        raw_items = [
-            {"id": "8906371", "qty": 10}, # รหัสลูกค้า/Barcode
-            {"id": "8859497306117", "qty": 5}
-        ]
-
-        # 1. ตรวจสอบเลขที่ PO ตามเงื่อนไข
-        clean_po = "ไม่ระบุ"
-        if "881." in raw_po_no: clean_po = raw_po_no # Makro
-        elif re.match(r"^4\d{7}$", raw_po_no): clean_po = raw_po_no # Lotus (8 หลัก ขึ้นต้นด้วย 4)
-        elif re.match(r"^T\d{9}$", raw_po_no): clean_po = raw_po_no # TFS (T + 9 หลัก)
-
-        # 2. ค้นหาและคำนวณสินค้า
-        parsed_results = []
-        pd_master = st.session_state.db_pd
-
-        for i, item in enumerate(raw_items):
-            # ค้นหาสินค้า (Method 1: Customer Code, Method 2: Barcode)
-            match = pd_master[
-                (pd_master['Mak'].astype(str) == item['id']) | 
-                (pd_master['Tus'].astype(str) == item['id']) | 
-                (pd_master['Tfs'].astype(str) == item['id']) |
-                (pd_master['Barcode'].astype(str) == item['id'])
-            ]
-
-            if not match.empty:
-                prod_code = match.iloc[0]['สินค้า']
-                prod_name = match.iloc[0]['ชื่อสินค้า']
-                
-                # ดึง Ratio ของ "หน่วยราคา" (จาก Cus_SaleList)
-                row_price = match[match['หน่วย'].str.contains(target_unit_price, case=False, na=False)]
-                ratio_price = row_price.iloc[0]['อัตราส่วน/หน่วยหลัก'] if not row_price.empty else 1
-                
-                # ดึง Ratio ของ "หน่วย Box"
-                row_box = pd_master[(pd_master['สินค้า'] == prod_code) & (pd_master['หน่วย'].str.contains('Box', case=False, na=False))]
-                
-                if not row_box.empty:
-                    ratio_box = row_box.iloc[0]['อัตราส่วน/หน่วยหลัก']
-                    unit_box_name = row_box.iloc[0]['หน่วย']
-                    # คำนวณ จำนวนสั่ง-สินค้า (Box)
-                    calc_qty_box = (item['qty'] * ratio_price) / ratio_box
-                else:
-                    # ถ้าไม่เจอหน่วย Box ให้ใช้หน่วยเดิม
-                    ratio_box = ratio_price
-                    unit_box_name = target_unit_price
-                    calc_qty_box = item['qty']
-
-                parsed_results.append({
-                    "สินค้า S-018": prod_code,
-                    "ชื่อสินค้า": prod_name,
-                    "หน่วยราคา": f"{target_unit_price} (แปลงเป็น {unit_box_name})",
-                    "จำนวนสั่ง ราคา": item['qty'],
-                    "คำนวณ": calc_qty_box,
-                    "สถานะ": "✅ พร้อม"
-                })
-            else:
-                parsed_results.append({
-                    "สินค้า S-018": item['id'],
-                    "ชื่อสินค้า": "❌ ไม่พบใน Master",
-                    "หน่วยราคา": "-",
-                    "จำนวนสั่ง ราคา": item['qty'],
-                    "คำนวณ": 0,
-                    "สถานะ": "⚠️ แก้ไข"
-                })
-
-        # STEP 3: หน้า Review (เหลือ 4 คอลัมน์หลัก + Action)
-        st.subheader(f"📝 Review Data (PO: {clean_po})")
-        review_df = pd.DataFrame(parsed_results)
+        # ค้นหาใน Master
+        match = df_pd[df_pd[col_name].astype(str).str.contains(item['po_item'], na=False)] if col_name else pd.DataFrame()
         
-        # แสดงตารางให้พี่นุ่นตรวจสอบ/แก้ไข
-        edited_df = st.data_editor(
-            review_df,
-            column_order=("สินค้า S-018", "ชื่อสินค้า", "หน่วยราคา", "จำนวนสั่ง ราคา", "สถานะ"),
-            disabled=["ชื่อสินค้า", "สถานะ"],
-            num_rows="dynamic"
+        # Priority 2: Barcode/GMT Code
+        if match.empty:
+            match = df_pd[(df_pd['Barcode'].astype(str) == item['po_item']) | (df_pd['สินค้า'] == item['po_item'])]
+
+        if not match.empty:
+            gmt_code = match.iloc[0]['สินค้า']
+            product_name = match.iloc[0]['ชื่อสินค้า']
+            
+            # หา Ratio ของหน่วยราคา (Price Unit)
+            p_ratio_row = df_pd[(df_pd['สินค้า'] == gmt_code) & (df_pd['หน่วย'].str.contains(default_unit, case=False))]
+            p_ratio = p_ratio_row.iloc[0]['อัตราส่วน/หน่วยหลัก'] if not p_ratio_row.empty else 1
+            
+            # หา Ratio ของหน่วย Box
+            b_ratio_row = df_pd[(df_pd['สินค้า'] == gmt_code) & (df_pd['หน่วย'].str.contains("Box", case=False))]
+            b_unit = b_ratio_row.iloc[0]['หน่วย'] if not b_ratio_row.empty else "N/A"
+            b_ratio = b_ratio_row.iloc[0]['อัตราส่วน/หน่วยหลัก'] if not b_ratio_row.empty else 0
+            
+            calc_qty = normalize_unit_logic(item['qty'], p_ratio, b_ratio)
+            
+            review_list.append({
+                "สินค้า (S-018)": gmt_code,
+                "ชื่อสินค้า": product_name,
+                "จำนวนสั่ง (ราคา)": item['qty'],
+                "หน่วยราคา": f"{default_unit.capitalize()}/{int(p_ratio)}",
+                "จำนวนสั่ง-สินค้า": calc_qty,
+                "หน่วย": b_unit,
+                "Status": "✅ OK"
+            })
+        else:
+            review_list.append({
+                "สินค้า (S-018)": item['po_item'],
+                "ชื่อสินค้า": "❌ ไม่พบรหัสใน Master",
+                "จำนวนสั่ง (ราคา)": item['qty'],
+                "หน่วยราคา": default_unit,
+                "จำนวนสั่ง-สินค้า": 0,
+                "หน่วย": "N/A",
+                "Status": "❌ ERROR"
+            })
+
+    # แสดงตาราง Review
+    df_review = pd.DataFrame(review_list)
+    
+    def highlight_error(s):
+        return ['background-color: #ffcccc' if s.Status == "❌ ERROR" else '' for _ in s]
+
+    st.table(df_review.style.apply(highlight_error, axis=1))
+
+    # 4. STEP 3: Export S-018
+    st.markdown("---")
+    st.header("Step 3: Export S-018")
+    
+    if st.button("Generate S-018 Excel File"):
+        # สร้าง Template จำลอง
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # สร้างโครงสร้างคอลัมน์ให้ตรงตาม S-018 (27 คอลัมน์)
+            s018_final = pd.DataFrame(columns=[
+                'เลขที่สั่งขาย', 'วันที่สั่งขาย', 'ยืนยัน', 'ลูกค้า', 'ประเภทใบสั่งขาย', 
+                'พนักงานขาย', 'แผนก', 'เลขที่ P/O ลูกค้า', 'วันที่ P/O ลูกค้า', 'วันที่ต้องการ',
+                'ประเภทเอกสาร', 'ประเภทความต้องการ', 'Def.แผนกเบิก', 'หมายเหตุ', 'ลำดับ-สินค้า',
+                'สินค้า', 'หน่วย', 'จำนวนสั่ง-สินค้า', 'หน่วยราคา', 'จำนวนสั่ง (ราคา)', 'ของแถม'
+            ])
+            
+            for i, row in df_review.iterrows():
+                if row['Status'] == "✅ OK":
+                    s018_final.loc[i] = [
+                        f"SO-{i+1}", datetime.now().strftime("%d/%m/%Y"), "Y|ยืนยัน", selected_cus_code,
+                        "1|ขายจากคลัง", selected_saleman_code, "SEL", item['po_no'], "", "",
+                        "ขายโมเดิร์นเทรด", "2|ไม่ยืนยัน", "", "", i+1,
+                        row['สินค้า (S-018)'], row['หน่วย'], row['จำนวนสั่ง-สินค้า'], 
+                        row['หน่วยราคา'], row['จำนวนสั่ง (ราคา)'], "N|No"
+                    ]
+            
+            s018_final.to_excel(writer, index=False, sheet_name='Sheet1')
+        
+        st.download_button(
+            label="⬇️ Download S-018.xlsx",
+            data=output.getvalue(),
+            file_name=f"S018_{selected_cus_code}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
-        # STEP 4: Export
-        if st.button("🚀 ยืนยันและสร้างไฟล์ S-018"):
-            st.success("กำลังสร้างไฟล์ S-018 และส่งข้อมูลเข้า ERP...")
-            # ส่วนนี้ใส่ Logic การสร้างไฟล์ Excel และปุ่มดาวน์โหลดได้เลยค่ะ
+else:
+    st.info("💡 กรุณาอัปโหลด Master Data และเลือกข้อมูลให้ครบเพื่อเริ่มทำงานค่ะ")
