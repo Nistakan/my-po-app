@@ -53,12 +53,17 @@ if df_cus is not None:
             format_func=lambda x: f"{filtered_cus.loc[x, 'รหัสลูกค้า']} | {filtered_cus.loc[x, 'ชื่อลูกค้า']}"
         )
         
+        # --- ดึงข้อมูลจากแถวที่เลือกมาใส่ตัวแปรให้ครบ ---
         c_data = filtered_cus.loc[selected_row_idx]
         selected_cus_code = c_data['รหัสลูกค้า']
+        selected_cus_name = c_data['ชื่อลูกค้า']
+        selected_saleman_name = c_data['ชื่อพนักงานขาย']
         selected_saleman_code = c_data['พนักงานขาย']
-        default_unit = c_data['หน่วย']
+        
+        # ดึงเงื่อนไข PO (ถ้าไม่มีให้แสดงว่าไม่ระบุ)
+        po_condition = c_data.get('เลขที่ P/O ลูกค้า', 'ไม่ระบุเงื่อนไข')
 
-        # --- ส่วนแสดงข้อมูลและเงื่อนไขที่ปรับลำดับใหม่ (ข้อ 1 และ 2) ---
+        # --- ส่วนแสดงข้อมูลและเงื่อนไขตามลำดับที่พี่นุ่นสั่ง (ข้อ 1 และ 2) ---
         st.markdown(f"""
         <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #ff4b4b;">
             <h4 style="margin-top:0;">📋 ข้อมูลและเงื่อนไขสำหรับการ Parse PO</h4>
@@ -77,7 +82,7 @@ if df_cus is not None:
                 </tr>
                 <tr>
                     <td style="font-weight:bold; color:#555;">4. เงื่อนไข P/O:</td>
-                    <td style="color:#d33682; font-weight:bold;">{c_data.get('เลขที่ P/O ลูกค้า', 'ไม่ระบุเงื่อนไข')}</td>
+                    <td style="color:#d33682; font-weight:bold;">{po_condition}</td>
                 </tr>
                 <tr>
                     <td style="font-weight:bold; color:#555;">5. Customer Code (สำหรับ Parse):</td>
