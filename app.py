@@ -59,11 +59,11 @@ if df_cus is not None:
         selected_cus_name = c_data['ชื่อลูกค้า']
         selected_saleman_name = c_data['ชื่อพนักงานขาย']
         selected_saleman_code = c_data['พนักงานขาย']
+        default_unit = c_data['หน่วย']  # << จุดสำคัญ: ต้องประกาศค่าตรงนี้เพื่อให้บรรทัดที่ 143 เรียกใช้ได้
         
-        # ดึงเงื่อนไข PO (ถ้าไม่มีให้แสดงว่าไม่ระบุ)
         po_condition = c_data.get('เลขที่ P/O ลูกค้า', 'ไม่ระบุเงื่อนไข')
 
-        # --- ส่วนแสดงข้อมูลและเงื่อนไขตามลำดับที่พี่นุ่นสั่ง (ข้อ 1 และ 2) ---
+        # --- ส่วนแสดงข้อมูลและเงื่อนไขตามลำดับที่พี่นุ่นสั่ง (1-5) ---
         st.markdown(f"""
         <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #ff4b4b;">
             <h4 style="margin-top:0;">📋 ข้อมูลและเงื่อนไขสำหรับการ Parse PO</h4>
