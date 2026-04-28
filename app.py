@@ -77,7 +77,7 @@ if df_cus is not None:
                 </tr>
             </table>
         </div>
-        """, unsafe_allow_code_html=True)
+        """, unsafe_allow_html=True)
         
         # แสดงรายการรหัสสินค้าจาก Master ที่เกี่ยวข้องเบื้องต้น
         if df_pd is not None:
