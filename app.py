@@ -47,62 +47,64 @@ if df_cus is not None:
     filtered_cus = df_cus[mask]
 
     if not filtered_cus.empty:
+        # ส่วนการเลือกลูกค้า
         selected_row_idx = st.selectbox(
             "เลือกลูกค้าจากรายการที่พบ", 
             filtered_cus.index,
             format_func=lambda x: f"{filtered_cus.loc[x, 'รหัสลูกค้า']} | {filtered_cus.loc[x, 'ชื่อลูกค้า']}"
         )
         
-        # --- ดึงข้อมูลจากแถวที่เลือกมาใส่ตัวแปรให้ครบ ---
+        # 1. ดึงข้อมูลมาประกาศตัวแปรให้ครบถ้วนเพื่อป้องกัน NameError
         c_data = filtered_cus.loc[selected_row_idx]
         selected_cus_code = c_data['รหัสลูกค้า']
         selected_cus_name = c_data['ชื่อลูกค้า']
         selected_saleman_name = c_data['ชื่อพนักงานขาย']
         selected_saleman_code = c_data['พนักงานขาย']
-        default_unit = c_data['หน่วย']  # << จุดสำคัญ: ต้องประกาศค่าตรงนี้เพื่อให้บรรทัดที่ 143 เรียกใช้ได้
-        
+        default_unit = c_data['หน่วย']
         po_condition = c_data.get('เลขที่ P/O ลูกค้า', 'ไม่ระบุเงื่อนไข')
 
-        # --- ส่วนแสดงข้อมูลและเงื่อนไขตามลำดับที่พี่นุ่นสั่ง (1-5) ---
+        # 2. แสดงข้อมูลตามลำดับที่พี่นุ่นสั่ง (ข้อ 1 และ 2)
         st.markdown(f"""
-        <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #ff4b4b;">
-            <h4 style="margin-top:0;">📋 ข้อมูลและเงื่อนไขสำหรับการ Parse PO</h4>
-            <table style="width:100%; border-collapse: collapse;">
-                <tr>
-                    <td style="width:25%; font-weight:bold; color:#555;">1. ลูกค้า (รหัส):</td>
-                    <td style="font-size:18px; font-weight:bold;">{selected_cus_code}</td>
+        <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #ff4b4b; margin-bottom: 20px;">
+            <h4 style="margin-top:0; color:#1f77b4;">📋 ข้อมูลลูกค้าและเงื่อนไขการ Parse</h4>
+            <table style="width:100%; border-collapse: collapse; font-size: 16px;">
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; width:30%; font-weight:bold; color:#555;">1. ลูกค้า:</td>
+                    <td style="padding: 8px;">{selected_cus_name}</td>
                 </tr>
-                <tr>
-                    <td style="font-weight:bold; color:#555;">2. ชื่อลูกค้า:</td>
-                    <td>{selected_cus_name}</td>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight:bold; color:#555;">2. ชื่อลูกค้า:</td>
+                    <td style="padding: 8px;">{selected_cus_name}</td>
                 </tr>
-                <tr>
-                    <td style="font-weight:bold; color:#555;">3. ชื่อพนักงานขาย (Sale):</td>
-                    <td>{selected_saleman_name} ({selected_saleman_code})</td>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight:bold; color:#555;">3. ชื่อ Sale:</td>
+                    <td style="padding: 8px;">{selected_saleman_name} ({selected_saleman_code})</td>
                 </tr>
-                <tr>
-                    <td style="font-weight:bold; color:#555;">4. เงื่อนไข P/O:</td>
-                    <td style="color:#d33682; font-weight:bold;">{po_condition}</td>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight:bold; color:#555;">4. เงื่อนไข PO:</td>
+                    <td style="padding: 8px; color:#d33682; font-weight:bold;">{po_condition}</td>
                 </tr>
-                <tr>
-                    <td style="font-weight:bold; color:#555;">5. Customer Code (สำหรับ Parse):</td>
-                    <td style="color:#268bd2; font-weight:bold;">
-                        {"รหัส 9 หลัก (TUS)" if "TUS" in selected_cus_code else "รหัส 6 หลัก (MAK)" if "MAK" in selected_cus_code else "รหัสกลุ่ม TFS"}
-                    </td>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight:bold; color:#555;">5. Customer Code:</td>
+                    <td style="padding: 8px; color:#268bd2; font-weight:bold;">{selected_cus_code}</td>
                 </tr>
             </table>
         </div>
         """, unsafe_allow_html=True)
-        
-        # แสดงรายการรหัสสินค้าจาก Master ที่เกี่ยวข้องเบื้องต้น
-        if df_pd is not None:
-            with st.expander("🔍 ดูรหัสสินค้าและ Barcode ใน Master ของลูกค้านี้"):
-                col_map = "TUS" if "TUS" in selected_cus_code else "MAK" if "MAK" in selected_cus_code else "TFS"
-                if col_map in df_pd.columns:
-                    st.dataframe(df_pd[df_pd[col_map].notna()][['สินค้า', 'ชื่อสินค้า', col_map, 'Barcode']], use_container_width=True)
 
-    else:
-        st.warning("กรุณาระบุคำค้นหาเพื่อเลือกลูกค้า")
+        # ส่วนแสดงผล Customer Code เพื่อใช้สำหรับ Parse ใน PO (ข้อ 2)
+        # แสดง Logic การ Parse ให้พี่นุ่นเห็นชัดๆ
+        parse_logic = ""
+        if "TUS" in selected_cus_code:
+            parse_logic = "🔍 ระบบจะมองหา: รหัส 9 หลักที่ขึ้นต้นด้วย 4 (Lotus's)"
+        elif "MAK" in selected_cus_code:
+            parse_logic = "🔍 ระบบจะมองหา: รหัส 6 หลัก (Makro)"
+        elif "TFS" in selected_cus_code:
+            parse_logic = "🔍 ระบบจะมองหา: รหัสเฉพาะกลุ่ม TFS / 24Shopping"
+        else:
+            parse_logic = "🔍 ระบบจะมองหา: Barcode 13 หลัก หรือ รหัสสินค้าตรงๆ"
+        
+        st.caption(f"**Parser Logic:** {parse_logic}")
 
 # 3. STEP 2: Upload & Parse (ปรับปรุงข้อ 1 และ 3)
 st.markdown("---")
