@@ -1,161 +1,84 @@
-import streamlit as st
 import pandas as pd
-from datetime import datetime
-import io
+import re
 
-# --- CONFIGURATION ---
-st.set_page_config(page_title="PO to S-018 Generator", layout="wide")
+# 1. โหลดข้อมูลจากไฟล์ Master (CSV/Excel)
+# อ้างอิงโครงสร้างจากไฟล์ที่อัปโหลด [cite: 1, 7]
+customers_df = pd.read_csv('Cus_SaleList.xlsx - Sheet.csv')
+products_df = pd.read_csv('PD_pack.xlsx - Sheet.csv')
 
-if 'po_bucket' not in st.session_state:
-    st.session_state.po_bucket = []
+def get_customer_info(customer_code):
+    """ ค้นหาข้อมูลลูกค้า พนักงานขาย และหน่วย Default [cite: 1] """
+    cust_data = customers_df[customers_df['รหัสลูกค้า'] == customer_code].iloc[0]
+    return {
+        "customer_name": cust_data['ชื่อลูกค้า'],
+        "salesman_code": cust_data['พนักงานขาย'],
+        "salesman_name": cust_data['ชื่อพนักงานขาย'],
+        "default_unit": cust_data['หน่วย']  # เช่น 'carton' หรือ 'box'
+    }
 
-# --- HELPER FUNCTIONS ---
-def load_master_data(file):
-    if file is not None:
-        return pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
+def find_product_unit_row(gmt_code, unit_type):
+    """ 
+    ค้นหา Row สินค้าตามหน่วยที่กำหนด (Carton หรือ Box) 
+    เพื่อดึงหน่วยเต็ม (Unit String) และ Ratio 
+    """
+    # กรองสินค้าตามรหัส GMT 
+    product_rows = products_df[products_df['สินค้า'] == gmt_code]
+    
+    # กำหนด Keyword สำหรับค้นหาหน่วย 
+    # ถ้า unit_type == 'carton' ให้หาแถวที่มีคำว่า 'Carton/'
+    # ถ้า unit_type == 'box' ให้หาแถวที่มีคำว่า 'Box/'
+    search_key = unit_type.capitalize() + '/'
+    
+    unit_row = product_rows[product_rows['หน่วย'].str.contains(search_key, na=False)]
+    
+    if not unit_row.empty:
+        return {
+            "full_unit": unit_row.iloc[0]['หน่วย'],              # เช่น 'Carton/168' 
+            "ratio": float(unit_row.iloc[0]['อัตราส่วน/หน่วยหลัก'])  # เช่น 168.0 
+        }
     return None
 
-def normalize_unit_logic(po_qty, price_unit_ratio, box_unit_ratio):
-    try:
-        po_qty, p_ratio, b_ratio = float(po_qty), float(price_unit_ratio), float(box_unit_ratio)
-        return (po_qty * p_ratio) / b_ratio if b_ratio != 0 else 0
-    except: return 0
-
-# --- MAIN APP ---
-st.title("📦 PO to Sales Order (S-018) Generator")
-st.markdown("---")
-
-# 1. SIDEBAR
-with st.sidebar:
-    st.header("⚙️ Master Data Management")
-    uploaded_cus = st.file_uploader("Upload Cus_SaleList", type=['xlsx', 'csv'])
-    uploaded_pd = st.file_uploader("Upload PD_pack", type=['xlsx', 'csv'])
-    if st.button("Clear All POs in Bucket"):
-        st.session_state.po_bucket = []
-        st.rerun()
-
-df_cus = load_master_data(uploaded_cus)
-df_pd = load_master_data(uploaded_pd)
-
-# 2. STEP 1: Selection & Display Logic (ปรับปรุงข้อ 2)
-st.header("Step 1: Customer Selection")
-
-if df_cus is not None:
-    search_term = st.text_input("🔍 ค้นหาลูกค้า (รหัส หรือ ชื่อ)").strip().lower()
-    mask = df_cus['รหัสลูกค้า'].str.lower().str.contains(search_term, na=False) | \
-           df_cus['ชื่อลูกค้า'].str.lower().str.contains(search_term, na=False)
-    filtered_cus = df_cus[mask]
-
-    if not filtered_cus.empty:
-        # ส่วนการเลือกลูกค้า
-        selected_row_idx = st.selectbox(
-            "เลือกลูกค้าจากรายการที่พบ", 
-            filtered_cus.index,
-            format_func=lambda x: f"{filtered_cus.loc[x, 'รหัสลูกค้า']} | {filtered_cus.loc[x, 'ชื่อลูกค้า']}"
-        )
-        
-        # 1. ดึงข้อมูลมาประกาศตัวแปรให้ครบถ้วนเพื่อป้องกัน NameError
-        c_data = filtered_cus.loc[selected_row_idx]
-        selected_cus_code = c_data['รหัสลูกค้า']
-        selected_cus_name = c_data['ชื่อลูกค้า']
-        selected_saleman_name = c_data['ชื่อพนักงานขาย']
-        selected_saleman_code = c_data['พนักงานขาย']
-        default_unit = c_data['หน่วย']
-        po_condition = c_data.get('เลขที่ P/O ลูกค้า', 'ไม่ระบุเงื่อนไข')
-
-        # 2. แสดงข้อมูลตามลำดับที่พี่นุ่นสั่ง (ข้อ 1 และ 2)
-        st.markdown(f"""
-        <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #ff4b4b; margin-bottom: 20px;">
-            <h4 style="margin-top:0; color:#1f77b4;">📋 ข้อมูลลูกค้าและเงื่อนไขการ Parse</h4>
-            <table style="width:100%; border-collapse: collapse; font-size: 16px;">
-                <tr style="border-bottom: 1px solid #ddd;">
-                    <td style="padding: 8px; width:30%; font-weight:bold; color:#555;">1. ลูกค้า:</td>
-                    <td style="padding: 8px;">{selected_cus_name}</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #ddd;">
-                    <td style="padding: 8px; font-weight:bold; color:#555;">2. ชื่อลูกค้า:</td>
-                    <td style="padding: 8px;">{selected_cus_name}</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #ddd;">
-                    <td style="padding: 8px; font-weight:bold; color:#555;">3. ชื่อ Sale:</td>
-                    <td style="padding: 8px;">{selected_saleman_name} ({selected_saleman_code})</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #ddd;">
-                    <td style="padding: 8px; font-weight:bold; color:#555;">4. เงื่อนไข PO:</td>
-                    <td style="padding: 8px; color:#d33682; font-weight:bold;">{po_condition}</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #ddd;">
-                    <td style="padding: 8px; font-weight:bold; color:#555;">5. Customer Code:</td>
-                    <td style="padding: 8px; color:#268bd2; font-weight:bold;">{selected_cus_code}</td>
-                </tr>
-            </table>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # ส่วนแสดงผล Customer Code เพื่อใช้สำหรับ Parse ใน PO (ข้อ 2)
-        # แสดง Logic การ Parse ให้พี่นุ่นเห็นชัดๆ
-        parse_logic = ""
-        if "TUS" in selected_cus_code:
-            parse_logic = "🔍 ระบบจะมองหา: รหัส 9 หลักที่ขึ้นต้นด้วย 4 (Lotus's)"
-        elif "MAK" in selected_cus_code:
-            parse_logic = "🔍 ระบบจะมองหา: รหัส 6 หลัก (Makro)"
-        elif "TFS" in selected_cus_code:
-            parse_logic = "🔍 ระบบจะมองหา: รหัสเฉพาะกลุ่ม TFS / 24Shopping"
-        else:
-            parse_logic = "🔍 ระบบจะมองหา: Barcode 13 หลัก หรือ รหัสสินค้าตรงๆ"
-        
-        st.caption(f"**Parser Logic:** {parse_logic}")
-
-# 3. STEP 2: Upload & Parse (ปรับปรุงข้อ 1 และ 3)
-st.markdown("---")
-st.header("Step 2: Upload PO & Review")
-uploaded_po = st.file_uploader("แนบไฟล์ PO (PDF/Excel)", type=['pdf', 'xlsx'])
-
-if uploaded_po and df_pd is not None and not filtered_cus.empty:
-    # (จำลองการดึงข้อมูล - ในเครื่องจริงส่วนนี้จะเชื่อมกับ Parser)
-    # ข้อ 1: ถ้า Parse ไม่สำเร็จ/หาไม่เจอ จะยังแสดงแถวให้พี่นุ่นแก้ได้
-    simulated_items = ["405456181", "UNKNOWN_CODE_999"] # ตัวอย่างรหัสที่เจอและไม่เจอ
+def process_po_to_s018(customer_code, po_items):
+    """ แปลงรายการจาก PO เป็นรูปแบบ S-018 """
+    # 1. ดึงข้อมูลลูกค้าและหน่วยตั้งต้น [cite: 1]
+    cust_info = get_customer_info(customer_code)
+    target_unit_type = cust_info['default_unit']  # 'carton' หรือ 'box'
     
-    review_list = []
-    for item in simulated_items:
-        col_map = "TUS" if "TUS" in selected_cus_code else "MAK" if "MAK" in selected_cus_code else "TFS"
-        match = df_pd[df_pd[col_map].astype(str).str.contains(item, na=False)] if col_map in df_pd.columns else pd.DataFrame()
+    s018_results = []
+    
+    for item in po_items:
+        gmt_code = item['gmt_code']
+        po_qty = item['po_qty']
         
-        if match.empty:
-            match = df_pd[(df_pd['Barcode'].astype(str) == item) | (df_pd['สินค้า'] == item)]
+        # 2. ค้นหาข้อมูลหน่วยและ Ratio จาก MasterProduct 
+        unit_info = find_product_unit_row(gmt_code, target_unit_type)
+        
+        if unit_info:
+            # คำนวณตาม Logic: 
+            # จำนวนสั่ง-ราคา (price_qty) = จำนวนดิบจาก PO
+            # หน่วยราคา (unit_price) = หน่วยที่ Map ได้ (Carton/xxx)
+            s018_item = {
+                "ลูกค้า": customer_code,
+                "พนักงานขาย": cust_info['salesman_code'],
+                "สินค้า": gmt_code,
+                "หน่วยราคา (unit_price)": unit_info['full_unit'],
+                "จำนวนสั่ง (ราคา)": po_qty,
+                "อัตราส่วน (Ratio)": unit_info['ratio'],
+                "จำนวนสั่ง-สินค้า (qty)": po_qty # กรณีสั่งหน่วยเดียวกับหน่วยราคา
+            }
+            s018_results.append(s018_item)
+            
+    return pd.DataFrame(s018_results)
 
-        if not match.empty:
-            # Parse สำเร็จ
-            res = match.iloc[0]
-            review_list.append({
-                "สินค้า (S-018)": res['สินค้า'],
-                "ชื่อสินค้า": res['ชื่อสินค้า'],
-                "จำนวนสั่ง (ราคา)": 0.0,
-                "หน่วยราคา": default_unit,
-                "Status": "✅ OK",
-                "p_ratio": 1, # ค่าสมมติ
-                "b_ratio": 1  # ค่าสมมติ
-            })
-        else:
-            # Parse ไม่สำเร็จ (ข้อ 1: แก้ไขให้แสดงเพื่อให้พี่นุ่นแก้เองได้)
-            review_list.append({
-                "สินค้า (S-018)": item,
-                "ชื่อสินค้า": "⚠️ ไม่พบ! กรุณาพิมพ์รหัสที่ถูกต้อง",
-                "จำนวนสั่ง (ราคา)": 0.0,
-                "หน่วยราคา": default_unit,
-                "Status": "❌ ERROR"
-            })
+# --- ตัวอย่างการใช้งาน ---
+# สมมติเรา Parse PO มาได้รายการสินค้า GMT Code ดังนี้:
+example_po_items = [
+    {"gmt_code": "FSMT1001", "po_qty": 10},
+    {"gmt_code": "FSMT2201", "po_qty": 5}
+]
 
-    # ตาราง Review ที่แก้ไขได้
-    edited_df = st.data_editor(pd.DataFrame(review_list), num_rows="dynamic", use_container_width=True)
+# เลือกลูกค้าที่เป็นหน่วย Carton (เช่น MT-TUS) [cite: 5]
+output_df = process_po_to_s018("MT-TUS", example_po_items)
 
-    if st.button("ยืนยันรายการลงตะกร้า"):
-        st.session_state.po_bucket.append({"cus": selected_cus_code, "data": edited_df})
-        st.success("บันทึกข้อมูลเรียบร้อย")
-
-# 4. STEP 3: Export (คงเดิม)
-if st.session_state.po_bucket:
-    st.markdown("---")
-    if st.button("Generate Combined S-018"):
-        # Logic รวมไฟล์และ Export ตามเดิม...
-        st.write("ระบบกำลังรวมไฟล์...")
+print("--- ผลลัพธ์สำหรับ Export S-018 ---")
+print(output_df[['สินค้า', 'หน่วยราคา (unit_price)', 'จำนวนสั่ง (ราคา)', 'อัตราส่วน (Ratio)']])
