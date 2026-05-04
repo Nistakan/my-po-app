@@ -1,118 +1,58 @@
 import streamlit as st
 import pandas as pd
 import re
-import io
+from io import BytesIO
 
-st.set_page_config(page_title="Universal PO Parser", layout="wide")
-
-st.title("🚀 ระบบแปลง PO PDF → S-018 (Universal Logic)")
-st.markdown("---")
-
-# --- 1. ส่วนการจัดการไฟล์ Master Data (XLSX) ---
-st.sidebar.header("📁 1. Master Data")
-uploaded_cust = st.sidebar.file_uploader("อัปโหลดไฟล์ Cus_SaleList.xlsx", type=['xlsx'])
-uploaded_prod = st.sidebar.file_uploader("อัปโหลดไฟล์ PD_pack.xlsx", type=['xlsx'])
-
-# --- 2. ส่วนการรับไฟล์ PO (PDF) ---
-st.sidebar.header("📄 2. Customer PO")
-uploaded_po = st.sidebar.file_uploader("อัปโหลด PO จากลูกค้า (PDF)", type=['pdf'])
-
-if uploaded_cust and uploaded_prod:
-    try:
-        # อ่านไฟล์ Master Data
-        customers_df = pd.read_excel(uploaded_cust)
-        products_df = pd.read_excel(uploaded_prod)
-        
-        # ทำความสะอาดชื่อคอลัมน์
-        customers_df.columns = customers_df.columns.str.strip()
-        products_df.columns = products_df.columns.str.strip()
-
-        # --- 3. Logic การตรวจจับลูกค้าอัตโนมัติ (Auto-detect Customer) ---
-        # จำลองการสกัดเลข PO จาก PDF (ในระบบจริงจะใช้ pdfplumber หรือ AI)
-        po_number_from_pdf = st.text_input("เลขที่ PO (ตรวจพบจากไฟล์):", "881.83423505")
-        
-        detected_cust = None
-        for _, row in customers_df.iterrows():
-            pattern = str(row['เลขที่ P/O ลูกค้า'])
-            if pattern != 'nan' and re.search(pattern, po_number_from_pdf):
-                detected_cust = row
-                break
-        
-        if detected_cust is not None:
-            cust_code = detected_cust['รหัสลูกค้า']
-            cust_name = detected_cust['ชื่อลูกค้า']
-            salesman_code = detected_cust['พนักงานขาย']
-            default_unit = str(detected_cust['หน่วย']).lower().strip()
+# --- ฟังก์ชันหลักในการสร้างไฟล์ S-018 (XLSX) ---
+def create_s018_xlsx(data_list):
+    output = BytesIO()
+    df = pd.DataFrame(data_list)
+    
+    # กำหนดคอลัมน์ตามรูปแบบมาตรฐาน S-018
+    columns_s018 = [
+        "เลขที่สั่งขาย", "วันที่สั่งขาย", "ยืนยัน", "ลูกค้า", "ประเภทใบสั่งขาย", 
+        "พนักงานขาย", "แผนก", "เลขที่ P/O ลูกค้า", "วันที่ P/O ลูกค้า", 
+        "วันที่ต้องการ", "ประเภทเอกสาร", "ประเภทความต้องการ", "Def.แผนกเบิก", 
+        "หมายเหตุ", "ลำดับ-สินค้า", "สินค้า", "หน่วย", "จำนวนสั่ง-สินค้า", 
+        "หน่วยราคา", "จำนวนสั่ง (ราคา)", "ราคาขาย", "%ส่วนลด", "%ส่วนลด2", 
+        "ส่วนลด/หน่วย", "%ส่วนลดพิเศษ", "ของแถม", "หมายเหตุ-สินค้า"
+    ]
+    
+    # สร้าง DataFrame ให้มีคอลัมน์ครบตาม Format (ถ้าไม่มีข้อมูลให้เป็นค่าว่าง)
+    final_df = pd.DataFrame(columns=columns_s018)
+    for col in df.columns:
+        if col in final_df.columns:
+            final_df[col] = df[col]
             
-            # กำหนดคอลัมน์รหัสสินค้าเฉพาะ (MAK/TUS/TFS) จาก Suffix รหัสลูกค้า
-            cust_type = cust_code.split('-')[-1] # เช่น 'MAK', 'TUS' หรือ 'TFS'
-            
-            st.success(f"✅ ตรวจพบลูกค้า: {cust_name} ({cust_code})")
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("พนักงานขาย", salesman_code)
-            col2.metric("หน่วยราคา Default", default_unit.upper())
-            col3.metric("ค้นหารหัสสินค้าในช่อง", cust_type)
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        final_df.to_excel(writer, index=False, sheet_name='Sheet1')
+    return output.getvalue()
 
-            st.markdown("---")
+# --- ส่วนการประมวลผล Mapping (สรุป) ---
+if uploaded_po and detected_cust is not None:
+    st.subheader("🔍 ผลการสร้างข้อมูล S-018")
+    
+    # [Logic] การ Match รหัสจาก PDF กับคอลัมน์เฉพาะของลูกค้า
+    # เช่น match = products_df[products_df[cust_type_col] == sku_from_pdf]
+    
+    s018_results = []
+    # (วนลูปสร้าง Data ตามข้อมูลที่ Match ได้...)
+    # ตัวอย่างข้อมูล:
+    s018_results.append({
+        "ลูกค้า": cust_code,
+        "พนักงานขาย": salesman_code,
+        "เลขที่ P/O ลูกค้า": po_no_from_pdf,
+        "สินค้า": "FSMT1001",
+        "หน่วย": "Carton/168",
+        "หน่วยราคา": "Carton/168",
+        "จำนวนสั่ง (ราคา)": 28
+    })
 
-            # --- 4. การกรองหน่วยคู่ขนาน (Parallel Unit Filtering) ---
-            # กรองสินค้าที่มีรหัสเฉพาะของลูกค้านั้น และมีหน่วย Carton/ หรือ Box/ ตาม Default
-            unit_pattern = f"{default_unit.capitalize()}/"
-            
-            if cust_type in products_df.columns:
-                valid_products = products_df[
-                    (products_df[cust_type].notna()) & 
-                    (products_df['หน่วย'].str.contains(unit_pattern, na=False))
-                ]
-                
-                st.subheader(f"📦 รายการสินค้าที่ระบุรหัส {cust_type} (หน่วย {unit_pattern}xxx)")
-                st.dataframe(valid_products[['สินค้า', 'ชื่อสินค้า', 'หน่วย', 'อัตราส่วน/หน่วยหลัก', cust_type]], use_container_width=True)
-
-                # --- 5. S-018 Preparation (Mapping Logic) ---
-                if uploaded_po:
-                    st.subheader("🔍 ผลการเทียบรหัสสินค้าเพื่อสร้าง S-018")
-                    
-                    # จำลองข้อมูลที่สกัดจาก PDF (รหัสสินค้าลูกค้า, จำนวนสั่ง)
-                    # ข้อมูลนี้จะถูกนำไป Match กับคอลัมน์ cust_type (MAK/TUS/TFS)
-                    mock_extracted_items = [
-                        {"sku": "812387", "qty": 10}, 
-                        {"sku": "909837", "qty": 5}
-                    ]
-                    
-                    s018_output = []
-                    for item in mock_extracted_items:
-                        # เทียบรหัสสินค้าลูกค้า เพื่อหา รหัสสินค้า GMT
-                        match = valid_products[valid_products[cust_type].astype(str) == str(item['sku'])]
-                        
-                        if not match.empty:
-                            target = match.iloc[0]
-                            s018_output.append({
-                                "เลขที่สั่งขาย": "", # รัน Prefix ในขั้นตอนถัดไป
-                                "เลขที่ P/O ลูกค้า": po_number_from_pdf,
-                                "ลูกค้า": cust_code,
-                                "พนักงานขาย": salesman_code,
-                                "สินค้า": target['สินค้า'], # รหัส GMT
-                                "หน่วย": target['หน่วย'],
-                                "จำนวนสั่ง-สินค้า": item['qty'], # คำนวณ Ratio หากจำเป็น
-                                "หน่วยราคา": target['หน่วย'],
-                                "จำนวนสั่ง (ราคา)": item['qty']
-                            })
-                    
-                    if s018_output:
-                        df_final = pd.DataFrame(s018_output)
-                        st.table(df_final)
-                        
-                        # Export to CSV (UTF-8 BOM สำหรับ Excel ภาษาไทย)
-                        csv_buffer = io.StringIO()
-                        df_final.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                        st.download_button("📥 Download S-018 CSV", data=csv_buffer.getvalue(), file_name=f"S018_{po_number_from_pdf}.csv", mime="text/csv")
-            else:
-                st.error(f"❌ ไม่พบช่องข้อมูลรหัสสินค้า '{cust_type}' ในไฟล์ Master Product")
-        else:
-            st.warning("⚠️ ไม่สามารถระบุลูกค้าได้จากเลขที่ PO นี้ กรุณาตรวจสอบ Pattern ใน Cus_SaleList")
-
-    except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการประมวลผล: {e}")
-else:
-    st.info("💡 กรุณาอัปโหลดไฟล์ Master Data (XLSX) ทั้งสองไฟล์เพื่อเริ่มระบบ")
+    if s018_results:
+        xlsx_data = create_s018_xlsx(s018_results)
+        st.download_button(
+            label="📥 Download S-018 (.xlsx)",
+            data=xlsx_data,
+            file_name=f"S018_{cust_code}_{po_no_from_pdf}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
